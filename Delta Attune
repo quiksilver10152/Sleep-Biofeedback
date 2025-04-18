@@ -1,0 +1,139 @@
+# -*- coding: utf-8 -*-
+"""
+Created on Mon Nov 11 12:33:44 2024
+
+@author: quiks
+"""
+api_key = ''
+
+from e4client import E4StreamingClient, E4DataStreamID
+import threading
+import time
+import numpy as np
+import matplotlib.pyplot as plt
+import sounddevice as sd
+import serial
+import csv
+import os
+import cmath
+
+sampRate = 66 #Hz
+tTot = 10 #sec
+bins = sampRate * tTot #Window length
+window = np.ones(bins) #Starting waveform
+freqMain = 4 #Starting, strongest-amplitude frequency
+phase = 0 #Starting phase alignment
+
+def generate_tick(freq, phase, duration, sample_rate):
+    """
+    Generates a ticking sound at the specified frequency and phase.
+
+    Args:
+        freq: Frequency of the tick (Hz)
+        phase: Phase of the tick (radians)
+        duration: Duration of the tick (seconds)
+        sample_rate: Sampling rate (Hz)
+
+    Returns:
+        A NumPy array containing the audio samples.
+    """
+    t = np.linspace(0, duration, int(duration * sample_rate), False)
+    tick = np.sin(2 * np.pi * freq * t + phase)
+
+    # Create a short pulse to isolate the tick
+    pulse_duration = 0.01  # Adjust pulse duration as needed
+    pulse = np.zeros_like(tick)
+    pulse[:int(pulse_duration * sample_rate)] = 1
+
+    tick *= pulse
+
+    return tick
+def hamming(N):
+    """
+    Generates a Hamming window of length N.
+    """
+    return 0.54 - 0.46 * np.cos(2*np.pi*np.arange(N) / (N-1))
+
+def deltaAttune():
+    #FFT spectral density and isolate frequency with highest amplitude
+    global window, freqMain, sampRate, phase
+    yf = np.fft.fft(window * hamming(len(window)))  # Apply Hamming window
+    xf = np.fft.fftfreq(len(window), 1/sampRate) #Scale frequency domain
+    yfTarget = yf[int(3.9*tTot) : 6*tTot] #Only interested in 3.5-6Hz region
+    xfTarget = xf[int(3.9*tTot) : 6*tTot] #Shift domain accordingly
+    ampMax = np.argmax(np.abs(yfTarget))
+    freqMain = np.abs(xfTarget[ampMax])   
+    phase = np.angle(yfTarget[ampMax])   
+    # Plot the frequency spectrum
+    plt.plot(xfTarget, np.abs(yfTarget))
+    plt.xlabel('Frequency (Hz)')
+    plt.ylabel('Magnitude')
+    plt.title('Delta Spectrum')
+    plt.grid(True)
+    plt.show()
+
+def rollinWin(stream_id, timestamp, *sample):
+    global window
+    window = np.delete(window, 0)
+    window = np.append(window, *sample)    
+    deltaAttune()
+    tick_sound = generate_tick(freqMain, phase, 0.03, 44100)
+    sd.play(tick_sound, 44100) 
+
+with E4StreamingClient('127.0.0.1', 28000) as client:
+    dev_list = client.list_connected_devices()
+
+    with client.connect_to_device(dev_list[0]) as conn:
+        # connected to the first device here        
+        event = threading.Event()    
+        def _callback(stream: E4DataStreamID, timestamp: float, *data):
+            print(stream, timestamp, *data)
+            event.set()
+        #conn.subscribe_to_stream(E4DataStreamID.BVP, print_sub)
+        conn.subscribe_to_stream(E4DataStreamID.BVP, rollinWin)        
+        # Auto shutdown
+        time.sleep(30.0)
+
+
+serial_port = serial.Serial('COM4', 115200, timeout=1)
+file_name = "complex_impedance_data.csv"
+file_path = os.path.join(os.getcwd(), file_name)
+csv_file = open(file_path, 'w', newline='')
+csv_writer = csv.writer(csv_file)
+csv_writer.writerow(['Time(Microseconds)', 'Frequency(Hz)', 'Complex_Impedance_1', 'Complex_Impedance_2', 'Complex_Impedance_3', 'Complex_Impedance_4', 'Complex_Impedance_5', 'Complex_Impedance_6'])
+
+try:
+    while True:
+        if serial_port.in_waiting > 0:
+            line = serial_port.readline().decode('utf-8').rstrip()
+            if line:
+                try:
+                    data = line.split(',')
+                    micros = int(data[0])
+                    frequency = float(data[1])
+                    voltages = [int(v) * 3.3 / 1024.0 for v in data[2:8]]
+                    phases_us = [int(p) for p in data[8:]]
+                    complex_impedances = []
+
+                    for i in range(6):
+                        voltage = voltages[i]
+                        phase_us = phases_us[i]
+                        if frequency > 0:
+                            phase_rad = (phase_us / 1000000.0) * 2 * np.pi * frequency
+                            current = 3.3 / 10000.0
+                            impedance = voltage / current
+                            complex_impedance = impedance * cmath.exp(1j * phase_rad)
+                            complex_impedances.append(complex_impedance) # store complex value
+                        else:
+                            complex_impedances.append(0)
+
+                    csv_writer.writerow([micros, frequency, complex_impedances[0], complex_impedances[1], complex_impedances[2], complex_impedances[3], complex_impedances[4], complex_impedances[5]])
+                    csv_file.flush()
+                except ValueError:
+                    print(f"Invalid data: {line}")
+
+except KeyboardInterrupt:
+    print("Data collection stopped.")
+    serial_port.close()
+    csv_file.close()
+    print(f"Data saved to: {file_path}")
