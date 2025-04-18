@@ -1,0 +1,219 @@
+# -*- coding: utf-8 -*-
+"""
+Created on Wed Sep 11 07:38:09 2024
+
+@author: GPZ1100
+"""
+
+import pandas as pd
+import numpy as np
+import os
+from datetime import datetime, timedelta
+
+# Get a list of all CSV files in a directory
+csvFolds = r'C:/Users/GPZ1100/Desktop/Sleep/My Sleep Data/'
+
+vector = pd.DataFrame()
+for subdir, dirs, files in os.walk(csvFolds):
+    # Create an empty dataframe to store the combined data    
+    for i in dirs:
+        folder = os.path.join(csvFolds, i)        
+        for file in os.walk(folder):
+            combDF = pd.DataFrame()
+            list1 = []
+            for j in file[2]:
+                list1.append(os.path.join(file[0], j))
+            fit = pd.read_csv(list1[0])
+            timeFit = datetime.strptime(str(fit.columns.values), "['%Y-%m-%dT%H:%M:%S.%f']") 
+                                                   
+            e4 = pd.read_csv(list1[1])
+            timeE4 =float(e4.columns[0])
+            timeE4 = datetime.utcfromtimestamp(timeE4).strftime('%Y-%m-%d %H:%M:%S.%f')
+            timeE4 = datetime.strptime(timeE4, '%Y-%m-%d %H:%M:%S.%f')
+            timeE4 = timeE4 - timedelta(hours = 4)
+            
+            cut = timeFit - timeE4
+            delta = int(cut.total_seconds())
+            # Loop through each CSV file and append its contents to the combined dataframe
+            for csv_file in list1:
+                if csv_file.endswith('.csv'):
+                    df = pd.read_csv(csv_file)
+                    dfTemp = pd.DataFrame()
+                    #If E4 started first, subtract time difference from all E4 data.
+                    if delta > 0:        
+                        if (os.path.basename(csv_file) == 'ACC.csv'):
+                            df.columns = [os.path.basename(csv_file), os.path.basename(csv_file), os.path.basename(csv_file)]
+                            df = df.drop(index = df.index[:(delta*32)])
+                            new_index = pd.RangeIndex(len(df)*(2))            
+                            ids = np.arange(len(df))*(2)
+                            dfNew = pd.DataFrame(index=new_index, columns=df.columns, dtype='object')
+                            dfNew.loc[ids] = df.values
+                            dfNew = dfNew.ffill()
+                            dfTemp = dfNew
+                        elif (os.path.basename(csv_file) == 'IBI.csv'): 
+                            df.columns = [os.path.basename(csv_file), os.path.basename(csv_file)]  
+                            new_index = pd.RangeIndex(len(df)*(64))            
+                            ids = np.arange(len(df))*(64)
+                            dfNew = pd.DataFrame(index=new_index, columns=df.columns, dtype='object')
+                            dfNew.loc[ids] = df.values
+                            dfNew = dfNew.ffill()
+                            dfTemp = dfNew       
+                        elif(os.path.basename(csv_file) == 'BVP.csv'):
+                            df.columns = [os.path.basename(csv_file)]
+                            df = df.drop(index = df.index[:(delta*64)])
+                            new_index = pd.RangeIndex(len(df)*(1))            
+                            ids = np.arange(len(df))*(1)
+                            dfNew = pd.DataFrame(index=new_index, columns=df.columns, dtype='object')
+                            dfNew.loc[ids] = df.values
+                            dfNew = dfNew.ffill()
+                            dfTemp = dfNew
+                        elif(os.path.basename(csv_file) == 'EDA.csv'):
+                            df.columns = [os.path.basename(csv_file)]
+                            df = df = df.drop(index = df.index[:(delta*4)])
+                            new_index = pd.RangeIndex(len(df)*(16))            
+                            ids = np.arange(len(df))*(16)
+                            dfNew = pd.DataFrame(index=new_index, columns=df.columns, dtype='object')
+                            dfNew.loc[ids] = df.values
+                            dfNew = dfNew.ffill()
+                            dfTemp = dfNew
+                        elif(os.path.basename(csv_file) == 'HR.csv'):
+                            df.columns = [os.path.basename(csv_file)]
+                            df = df = df.drop(index = df.index[:(delta)])
+                            new_index = pd.RangeIndex(len(df)*(64))            
+                            ids = np.arange(len(df))*(64)
+                            dfNew = pd.DataFrame(index=new_index, columns=df.columns, dtype='object')
+                            dfNew.loc[ids] = df.values
+                            dfNew = dfNew.ffill()
+                            dfTemp = dfNew
+                        elif(os.path.basename(csv_file) == 'TEMP.csv'):
+                            df.columns = [os.path.basename(csv_file)]
+                            df = df = df.drop(index = df.index[:(delta*4)])
+                            new_index = pd.RangeIndex(len(df)*(16))            
+                            ids = np.arange(len(df))*(16)
+                            dfNew = pd.DataFrame(index=new_index, columns=df.columns, dtype='object')
+                            dfNew.loc[ids] = df.values
+                            dfNew = dfNew.ffill()
+                            dfTemp = dfNew            
+                        else:
+                            df.columns = ['State']
+                            new_index = pd.RangeIndex(len(df)*(64))            
+                            ids = np.arange(len(df))*(64)
+                            dfNew = pd.DataFrame(index=new_index, columns=df.columns, dtype='object')            
+                            dfNew.loc[ids] = df.values
+                            dfNew = dfNew.ffill()
+                            dfTemp = dfNew
+                        df = df.apply(lambda x: pd.Series(x.dropna().values))                   
+                        combDF = pd.concat([combDF, dfTemp], axis = 1, names = csv_file)
+                        timeEnd = timeE4 + timedelta(seconds=len(combDF.index)/64)
+                        times = pd.DataFrame(np.arange(timeE4, timeEnd, timedelta(seconds=1/64)).astype(datetime), columns=['Time']) 
+                    #If FitBit started first, subtract time difference from sleep stage data.
+                    else:
+                        if (os.path.basename(csv_file) == 'ACC.csv'):
+                            df.columns = [os.path.basename(csv_file), os.path.basename(csv_file), os.path.basename(csv_file)]
+                            new_index = pd.RangeIndex(len(df)*(2))            
+                            ids = np.arange(len(df))*(2)
+                            dfNew = pd.DataFrame(index=new_index, columns=df.columns, dtype='object')
+                            dfNew.loc[ids] = df.values
+                            dfNew = dfNew.ffill()
+                            dfTemp = dfNew            
+                        elif (os.path.basename(csv_file) == 'IBI.csv'): 
+                            df.columns = [os.path.basename(csv_file), os.path.basename(csv_file)]
+                            new_index = pd.RangeIndex(len(df)*(64))            
+                            ids = np.arange(len(df))*(64)
+                            dfNew = pd.DataFrame(index=new_index, columns=df.columns, dtype='object')
+                            dfNew.loc[ids] = df.values
+                            dfNew = dfNew.ffill()
+                            dfTemp = dfNew   
+                        elif(os.path.basename(csv_file) == 'BVP.csv'):
+                            df.columns = [os.path.basename(csv_file)]
+                            new_index = pd.RangeIndex(len(df)*(1))            
+                            ids = np.arange(len(df))*(1)
+                            dfNew = pd.DataFrame(index=new_index, columns=df.columns, dtype='object')
+                            dfNew.loc[ids] = df.values
+                            dfNew = dfNew.ffill()
+                            dfTemp = dfNew
+                        elif(os.path.basename(csv_file) == 'EDA.csv'):
+                            df.columns = [os.path.basename(csv_file)]
+                            new_index = pd.RangeIndex(len(df)*(16))            
+                            ids = np.arange(len(df))*(16)
+                            dfNew = pd.DataFrame(index=new_index, columns=df.columns, dtype='object')
+                            dfNew.loc[ids] = df.values
+                            dfNew = dfNew.ffill()
+                            dfTemp = dfNew
+                        elif(os.path.basename(csv_file) == 'HR.csv'):
+                            df.columns = [os.path.basename(csv_file)]
+                            new_index = pd.RangeIndex(len(df)*(64))            
+                            ids = np.arange(len(df))*(64)
+                            dfNew = pd.DataFrame(index=new_index, columns=df.columns, dtype='object')
+                            dfNew.loc[ids] = df.values
+                            dfNew = dfNew.ffill()
+                            dfTemp = dfNew
+                        elif(os.path.basename(csv_file) == 'TEMP.csv'):
+                            df.columns = [os.path.basename(csv_file)]
+                            new_index = pd.RangeIndex(len(df)*(16))            
+                            ids = np.arange(len(df))*(16)
+                            dfNew = pd.DataFrame(index=new_index, columns=df.columns, dtype='object')
+                            dfNew.loc[ids] = df.values
+                            dfNew = dfNew.ffill()
+                            dfTemp = dfNew                          
+                        else: 
+                            df.columns = ['State']
+                            new_index = pd.RangeIndex(len(df)*(64))            
+                            ids = np.arange(len(df))*(64)
+                            dfNew = pd.DataFrame(index=new_index, columns=df.columns, dtype='object')            
+                            dfNew.loc[ids] = df.values
+                            dfNew = dfNew.ffill()
+                            dfTemp = dfNew
+                        df = df.apply(lambda x: pd.Series(x.dropna().values))
+                        combDF = pd.concat([combDF, dfTemp], axis = 1, names = csv_file)
+                        timeEnd = timeFit + timedelta(seconds=len(combDF.index)/64)
+                        times = pd.DataFrame(np.arange(timeFit, timeEnd, timedelta(seconds=1/64)).astype(datetime), columns=['Time']) 
+                #Set threshold because of improper IBI scaling, FIX
+                out = pd.concat([combDF, times],axis=1)
+                out = out.dropna(thresh = 9)
+        vector = pd.concat([vector, out], axis=0)
+
+
+def dfToXy(df, windowSize):
+    dfNp = df.to_numpy()
+    X,y = [], []
+    for i in range(len(dfNp) - windowSize):        
+        frame = np.array(dfNp[i:i + windowSize,:dfNp.shape[1]-1])
+        X.append(frame)       
+        y.append(dfNp[windowSize + i,0])    
+    return np.array(X), np.array(y)
+
+X, y = dfToXy(vector, 320)
+xTrain, yTrain = X[:int(len(y)*.8)], y[:int(len(y)*.8)]
+xVal, yVal = X[int(len(y)*.8):int(len(y)*.9)], y[int(len(y)*.8):int(len(y)*.9)]
+xTest, yTest = X[int(len(y)*.9):len(y)], y[int(len(y)*.9):len(y)]
+
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import * 
+from tensorflow.keras.callbacks import ModelCheckpoint
+from tensorflow.keras.losses import MeanSquaredError
+from tensorflow.keras.optimizers import Adam
+from tensorflow.keras.metrics import RootMeanSquaredError
+model1 = Sequential()
+model1.add(InputLayer((320,10)))
+model1.add(LSTM(64))
+model1.add(Dense(8,'relu'))
+model1.add(Dense(1))
+model1.summary()
+
+import tensorflow as tf
+xTrain, yTrain = tf.convert_to_tensor(xTrain,dtype = tf.float32), tf.convert_to_tensor(yTrain, dtype=tf.float32)
+xVal, yVal = tf.convert_to_tensor(xVal,dtype = tf.float32), tf.convert_to_tensor(yVal, dtype=tf.float32)
+test = xVal[0]
+cP = ModelCheckpoint('model1/', save_best_only=True)
+model1.compile(loss=MeanSquaredError(), optimizer=Adam(learning_rate=0.0001), metrics = [RootMeanSquaredError()])
+model1.fit(xTrain, yTrain, validation_data=(xVal,yVal), epochs = 4, callbacks=[cP])
+
+from tensorflow.keras.models import load_model
+model1 = load_model('model1/')
+xTest, yTest =tf.convert_to_tensor(xTest,dtype = tf.float32), tf.convert_to_tensor(yTest, dtype=tf.float32)
+trainPreds = model1.predict(xVal).flatten()
+trainOut = pd.DataFrame(data = {'Training Predictions': trainPreds, 'Actuals': yTest})
+trainOut
+
+
